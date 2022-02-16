@@ -81,4 +81,17 @@
 - Use `exit` to exit out of the web vm
 - Now use `ssh vagrant@192.168.33.11` to go into the db vm. Use the same password as above
 - go into ansible using `cd /etc` and `cd /ansible`. Then do `sudo nano hosts` to add the following commands
-![Image Link]()
+![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/etc_ansible_hosts_web.png)
+
+- do the same for db node like below
+![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/etc_ansible_hosts_db.png)
+
+- Test if the connection between the controller and the nodes work by using `ansible nodename -m ping`
+- To see how info about all the servers are working, use `ansible all -m ping`
+- we can use `ansible web -a "uname -a" to identify the node
+- We can similarily use `ansible all -a "uname -a" to identify all the servers
+- We can use `ansible all -a "date" to check where the server is running
+- use `ansible all -a "free" will give us information about how much memory is being used, how much is free
+- To copy file/data r+from controller to web node, use `ansible web -m ansible.builtin.copy -a "src=/etc/ansible/README.md dest=/home/vagrant/README.md"`
+- To copy file/data r+from controller to db node, use `ansible db -m ansible.builtin.copy -a "src=/etc/ansible/README.md dest=/home/vagrant/README.md"`
+- This can be verified by using `ansible nodename -a "ls"` or use `ansible all -a "ls"`
