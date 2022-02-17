@@ -101,3 +101,91 @@
 - playbooks are resuable
 - how we can create a playbook - filename yml/yaml
 - it starts with three dashes ---
+
+### Playbook tasks
+
+```
+# YAML/YML file to create a playbook to configure nginx in our web instance
+---
+# it starts with three dashes
+
+# add the name of the host/instance/vm
+- hosts: web
+
+# collect logs or gather facts - 
+  gather_facts: yes
+
+# we need admin access to install anything
+  become: true
+
+# add the instructions - install nginx - in web server
+  tasks:
+  - name: Installing Nginx web-server in our app machine
+    apt: pkg=nginx state=present
+
+# HINT: be mindful of intendentation
+# use 2 spaces - avoid using tab
+
+
+```
+---
+- hosts: web
+
+  gather_facts: yes
+
+  become: true
+
+  tasks:
+  - name: Copying app folder into web-server in our app machine
+    copy:
+      src: /home/vagrant/app
+      dest: /home/vagrant/
+
+```
+
+```
+
+#Yml file to create a playbook to set up nodejs and get app running
+---
+- hosts: web
+
+  gather_facts: yes
+
+  become: true
+
+  tasks:
+  - name: load a specific version of nodejs
+    shell: curl -sL https://deb.nodesource.com/setup_6.x | sudo -E bash -
+
+  - name: install the required packages
+    apt:
+      pkg:
+        - nginx
+        - nodejs
+      update_cache: yes
+  - name: install and run the app
+    shell:
+       cd app/app; npm install; screen -d -m npm start
+
+```
+
+```
+
+#YAML/YML file to create a playbook to install npm in our web machine
+
+---
+#add the name of the host/instance/vm
+- hosts: web
+
+#collect logs or gather facts - 
+  gather_facts: yes
+
+#we need admin access to install anything
+  become: true
+
+#add the instructions - install npm - in web server
+  tasks:
+  - name: Installing npm in our app machine
+    apt: pkg=npm state=present
+
+```
