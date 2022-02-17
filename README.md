@@ -95,3 +95,9 @@
 - To copy file/data r+from controller to web node, use `ansible web -m ansible.builtin.copy -a "src=/etc/ansible/README.md dest=/home/vagrant/README.md"`
 - To copy file/data r+from controller to db node, use `ansible db -m ansible.builtin.copy -a "src=/etc/ansible/README.md dest=/home/vagrant/README.md"`
 - This can be verified by using `ansible nodename -a "ls"` or use `ansible all -a "ls"`
+### Ansible playbooks
+- YAML/yml files with script to implement config management
+- saves time
+- playbooks are resuable
+- how we can create a playbook - filename yml/yaml
+- it starts with three dashes ---
