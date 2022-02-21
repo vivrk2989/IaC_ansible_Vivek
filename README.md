@@ -251,3 +251,115 @@
   - name: enable nginx
     service: name=nginx enabled=yes
 ```
+## Creating an ec2 instance from ansible controller using playbook script
+- Create a new fresh vm 
+- Run `sudo apt-get update -y` and `sudo apt-get upgrade -y`
+- then use `sudo apt-get install tree` to install tree feature
+- use `sudo apt-add-repository --yes --update ppa:ansible/ansible`. This goes to the ansible respository and downloads the folder and the specific version
+- `sudo apt-get install ansible -y` to install ansible in our vm
+- `sudo apt-get install python3-pip -y` to install the dependency
+- `pip3 install awscli`
+- `pip3 install boto boto3` . Verify before automating this process as this will ask for our permission
+- run `sudo apt-get update -y` and `sudo apt-get upgrade -y` again
+- Check the version of aws using `aws --version`
+- Now we need to create a vault to store our keys which the ansible controller will use to login in into AWS platform
+- so create directory within ansible using `mkdir group_vars` and then make another directory within `group_vars` directory using `mkdir all`.
+- Within the `all` directory, create a new file using `sudo ansible vault create pass.yml` and put in the following:
+```
+aws_access_key:
+aws_secret_key:
+
+and to save this file use esc and then type :wq!
+```
+- do `sudo chmod 600 pass.yml`
+- We can use `ansible all -m ping --ask-vault-pass` to see if we can connect to the servers in cloud. By using `--ask-vault-pass`, ansible controller will know that we are trying ti establish connection with the cloud instance and not the localhost.
+
+- To create an instance, we first need to generate new keys in the .ssh folder using `ssh-keygen -t rsa -b 4096` and as default it will create `id_rsa` and `id_rsa.pub` files. We will be using this to connect our ansible controller to the ec2 instance that we are about to generate.
+- Lets create a new instance and allow port 80 for our nginx to work using the playbook script below
+
+```
+---
+- hosts: localhost
+  connection: local
+  gather_facts: yes
+  vars_files:
+  - /etc/ansible/group_vars/all/pass.yml
+  vars:
+    key_name: id_rsa
+    region: eu-west-1
+    image: ami-07d8796a2b0f8d29c
+    id: "vivek-ansible2"
+    sec_group: "{{ id }}-sec"
+  tasks:
+    - name: Provisioning EC2 instances
+      block:
+      - name: Upload public key to AWS
+        ec2_key:
+          name: "{{ key_name }}"
+          key_material: "{{ lookup('file', '/home/vagrant/.ssh/id_rsa.pub') }}"
+          region: "{{ region }}"
+          aws_access_key: "{{aws_access_key}}"
+          aws_secret_key: "{{aws_secret_key}}"
+      - name: Create security group
+        ec2_group:
+          name: "{{ sec_group }}"
+          description: "Sec group for app {{ id }}"
+          region: "{{ region }}"
+          aws_access_key: "{{aws_access_key}}"
+          aws_secret_key: "{{aws_secret_key}}"
+          rules:
+            - proto: tcp
+              ports:
+                - 22
+              cidr_ip: 0.0.0.0/0
+              rule_desc: allow all on ssh port
+            - proto: tcp
+              ports:
+                - 80
+              cidr_ip: 0.0.0.0/0
+              rule_desc: allow all on http port
+        register: result_sec_group
+      - name: Provision instance(s)
+        ec2:
+          aws_access_key: "{{aws_access_key}}"
+          aws_secret_key: "{{aws_secret_key}}"
+          key_name: "{{ key_name }}"
+          id: "{{ id }}"
+          group_id: "{{ result_sec_group.group_id }}"
+          image: "{{ image }}"
+          instance_type: t2.micro
+          region: "{{ region }}"
+          wait: true
+          count: 1
+          instance_tags:
+            name: eng103a_vivek_ansible
+      tags: ['never', 'create_ec2']
+```
+
+- run the playbook using `sudo ansible-playbook ec2.yml --ask-vault-pass --tags create_ec2 --tags=ec2-create -e "ansible_python_interpreter=/usr/bin/python3"`
+- once we run this, a new instance will be created in AWS
+- Once it finishes initializing, copy the `ip` address of the instance and edit the hosts file as below
+
+![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/Hosts%20file%20Ansible%20ec2.png)
+
+- save and exit out and ping it using `sudo ansible aws -m ping --ask-vault-pass`
+- If we see 'pong', then we have done everything correctly
+- Now create a .yml file to install nginx in our ec2 instance server
+- use `sudo nano install_nginx.yml` and then create a playbook like below
+
+```
+---
+- hosts: web
+
+  gather_facts: yes
+
+  become: true
+
+  tasks:
+  - name: Installing Nginx web-server in our app machine
+    apt: pkg=nginx state=present
+
+```
+- Once it finishes installing nginx, we can see nginx running using our ec2 instance ip address.
+- So go to aws and copy the ip address of this instance and paste in the browser to see nginx running.
+
