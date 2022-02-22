@@ -264,7 +264,7 @@
 - Check the version of aws using `aws --version`
 - Now we need to create a vault to store our keys which the ansible controller will use to login in into AWS platform
 - so create directory within ansible using `mkdir group_vars` and then make another directory within `group_vars` directory using `mkdir all`.
-- Within the `all` directory, create a new file using `sudo ansible vault create pass.yml` and put in the following:
+- Within the `all` directory, create a new file using `sudo-ansible vault create pass.yml` and put in the following:
 ```
 aws_access_key:
 aws_secret_key:
