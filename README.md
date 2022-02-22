@@ -104,7 +104,7 @@
 
 ### Ansible Task
 
-![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/Ansible%20Architecture%20Vivek.png)
+![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/Ansible%20architecture%20with%20vault.png)
 
 - Write playbook scripts in Ansible controller Node to perform tasks in the web and db agent nodes
 - Yaml file to install nginx in our web server 
