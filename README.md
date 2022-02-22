@@ -363,3 +363,222 @@ and to save this file use esc and then type :wq!
 - Once it finishes installing nginx, we can see nginx running using our ec2 instance ip address.
 - So go to aws and copy the ip address of this instance and paste in the browser to see nginx running.
 
+### Taking it to cloud
+
+- Image needs to be added here
+
+- From the controller node already set up, I created a new instance in AWS and isnatlled ansible to make this as the new controller for my application and db.
+- yaml file to create a new ec2 instance
+```
+---
+- hosts: localhost
+  connection: local
+  gather_facts: yes
+  vars_files:
+  - /etc/ansible/group_vars/all/pass.yml
+  vars:
+    key_name: id_rsa
+    region: eu-west-1
+    image: ami-07d8796a2b0f8d29c
+    id: "vivek-ansibleCC"
+    sec_group: "{{ id }}-sec"
+  tasks:
+    - name: Provisioning EC2 instances
+      block:
+      - name: Upload public key to AWS
+        ec2_key:
+          name: "{{ key_name }}"
+          key_material: "{{ lookup('file', '/home/vagrant/.ssh/id_rsa.pub') }}"
+          region: "{{ region }}"
+          aws_access_key: "{{aws_access_key}}"
+          aws_secret_key: "{{aws_secret_key}}"
+      - name: Create security group
+        ec2_group:
+          name: "{{ sec_group }}"
+          description: "Sec group for app {{ id }}"
+          region: "{{ region }}"
+          aws_access_key: "{{aws_access_key}}"
+          aws_secret_key: "{{aws_secret_key}}"
+          rules:
+            - proto: tcp
+              ports:
+                - 22
+              cidr_ip: 0.0.0.0/0
+              rule_desc: allow all on ssh port
+            - proto: tcp
+              ports:
+                - 80
+              cidr_ip: 0.0.0.0/0
+              rule_desc: allow all on http port
+        register: result_sec_group
+      - name: Provision instance(s)
+        ec2:
+          aws_access_key: "{{aws_access_key}}"
+          aws_secret_key: "{{aws_secret_key}}"
+          key_name: "{{ key_name }}"
+          id: "{{ id }}"
+          group_id: "{{ result_sec_group.group_id }}"
+          image: "{{ image }}"
+          instance_type: t2.micro
+          region: "{{ region }}"
+          wait: true
+          count: 1
+          instance_tags:
+            name: eng103a_vivek_ansible_CController
+      tags: ['never', 'create_ec2']
+```
+- Once created, include this into the `hosts` file
+![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/ansible%20cloud%20controller%20hosts%20.png)
+
+- Navigate to .ssh folder and ssh into the new instance using the command from the aws amazon
+- Once this is done, set up ansible like above to make this as our new controller.
+- once all dependencies are set up, create `group_vars` and `all` and then create a `vault` yml file for our aws credentials
+- You can now create a new key in the .ssh folder if you prefer for this new instance and put that into your playbook script for creating a new instance for the app
+- once this is done, use the playbook script - launch_app.yml below to set up a new instance for our application in aws
+```
+---
+- hosts: localhost
+  connection: local
+  gather_facts: yes
+  vars_files:
+  - /etc/ansible/group_vars/all/pass.yml
+  vars:
+    key_name: app_key
+    region: eu-west-1
+    image: ami-07d8796a2b0f8d29c
+    id: "vivek-ansibleapp3"
+    sec_group: "{{ id }}-sec"
+  tasks:
+    - name: Provisioning EC2 instances
+      block:
+      - name: Upload public key to AWS
+        ec2_key:
+          name: "{{ key_name }}"
+          key_material: "{{ lookup('file', '/home/vagrant/.ssh/id_rsa.pub') }}"
+          region: "{{ region }}"
+          aws_access_key: "{{aws_access_key}}"
+          aws_secret_key: "{{aws_secret_key}}"
+      - name: Create security group
+        ec2_group:
+          name: "{{ sec_group }}"
+          description: "Sec group for app {{ id }}"
+          region: "{{ region }}"
+          aws_access_key: "{{aws_access_key}}"
+          aws_secret_key: "{{aws_secret_key}}"
+          rules:
+            - proto: tcp
+              ports:
+                - 22
+              cidr_ip: 0.0.0.0/0
+              rule_desc: allow all on ssh port
+            - proto: tcp
+              ports:
+                - 80
+              cidr_ip: 0.0.0.0/0
+              rule_desc: allow all on http port
+            - proto:
+                - 3000
+              cidr_ip: 0.0.0.0/0 
+        register: result_sec_group
+      - name: Provision instance(s)
+        ec2:
+          aws_access_key: "{{aws_access_key}}"
+          aws_secret_key: "{{aws_secret_key}}"
+          key_name: "{{ key_name }}"
+          id: "{{ id }}"
+          group_id: "{{ result_sec_group.group_id }}"
+          image: "{{ image }}"
+          instance_type: t2.micro
+          region: "{{ region }}"
+          wait: true
+          count: 1
+          instance_tags:
+            name: eng103a_vivek_ansible_cloud_app1
+      tags: ['never', 'create_ec2']
+```
+- Now put the information in the hosts file for this new instance like below
+![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/hosts%20file%20for%20cloud%20app.png)
+
+- now use `sudo ansible app -m ping --ask-vault-pass` to check the connection.
+- now copy the app folder from the controller to the application instance and check if it is done correctly by sshing into the app instance
+- Once this is done use the playbook scripts to install dependencies like above for npm, nginx, nodejs
+
+```
+# YAML/YML file to create a playbook to configure nginx in our web instance
+---
+# it starts with three dashes
+
+# add the name of the host/instance/vm
+- hosts: app
+
+# collect logs or gather facts - 
+  gather_facts: yes
+
+# we need admin access to install anything
+  become: true
+
+# add the instructions - install nginx - in web server
+  tasks:
+  - name: Installing Nginx web-server in our app machine
+    apt: pkg=nginx state=present
+```
+- nodejs
+```
+---
+- hosts: app
+
+  gather_facts: yes
+
+  become: true
+
+  tasks:
+  - name: load a specific version of nodejs
+    shell: curl -sL https://deb.nodesource.com/setup_6.x | sudo -E bash -
+
+  - name: install the required packages
+    apt:
+      pkg:
+        - nginx
+        - nodejs
+      update_cache: yes
+```
+- npm
+```
+- hosts: web
+
+
+  gather_facts: yes
+
+
+  become: true
+
+
+  tasks:
+  - name: Installing npm in our app machine
+    apt: pkg=npm state=present
+```
+- Once all are set up, ssh into app instance and navigate into app using `cd app` and then `npm start` to start the app.
+- Go to the browser and then use the application instance ip with port 3000 to see the app running.
+
+- We can set up reverse proxy as well using the playbook script below. We restart nginx once this is set up
+```
+---
+# reverse proxy
+- hosts: web
+
+  gather_facts: yes
+
+  become: yes
+
+  tasks:
+  - name: reverse proxy
+    synchronize:
+      src: /home/vagrant/provision/default
+      dest: /etc/nginx/sites-available/default
+
+  - name: restart nginx
+    service: name=nginx state=restarted
+
+  - name: enable nginx
+    service: name=nginx enabled=yes
+```
