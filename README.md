@@ -367,8 +367,32 @@ and to save this file use esc and then type :wq!
 
 - Image needs to be added here
 
-- From the controller node already set up, I created a new instance in AWS and isnatlled ansible to make this as the new controller for my application and db.
-- yaml file to create a new ec2 instance
+- Create a new instance in aws inside my vpc and install the dependencies like below for setting this up as a controller which will control new instances of my application and db that will be created within the controller using playbook scripts. 
+### Steps to make our instance into a controller
+- Run `sudo apt-get update -y` and `sudo apt-get upgrade -y`
+- then use `sudo apt-get install tree` to install tree feature
+- use `sudo apt-add-repository --yes --update ppa:ansible/ansible`. This goes to the ansible respository and downloads the folder and the specific version
+- `sudo apt-get install ansible -y` to install ansible in our vm
+- `sudo apt-get install python3-pip -y` to install the dependency
+- `pip3 install awscli`
+- `pip3 install boto boto3` . Verify before automating this process as this will ask for our permission
+- run `sudo apt-get update -y` and `sudo apt-get upgrade -y` again
+- Check the version of aws using `aws --version`
+- Now we need to create a vault to store our keys which the ansible controller will use to login in into AWS platform
+- so create directory within ansible using `mkdir group_vars` and then make another directory within `group_vars` directory using `mkdir all`.
+- Within the `all` directory, create a new file using `sudo-ansible vault create pass.yml` and put in the following:
+```
+aws_access_key:
+aws_secret_key:
+
+and to save this file use esc and then type :wq!
+```
+- do `sudo chmod 600 pass.yml`
+#### Creating instance for the application
+- Now we need to create our app and db instance by staying within the controller
+- Navigate to /home/ubuntu/.ssh and use `ssh-keygen -t rsa -b 4096` to generate ssh keys that will we using to connect to our ec2 instance.
+- While creating the new insatnces for the app and db, make sure you use your public vpc and public subnet to enable internet access to both.
+- Navigate back to `/etc/ansible/` and use the below yaml file to firstly generate app instance
 ```
 ---
 - hosts: localhost
@@ -377,130 +401,54 @@ and to save this file use esc and then type :wq!
   vars_files:
   - /etc/ansible/group_vars/all/pass.yml
   vars:
-    key_name: id_rsa
-    region: eu-west-1
-    image: ami-07d8796a2b0f8d29c
-    id: "vivek-ansibleCC"
-    sec_group: "{{ id }}-sec"
+    ec2_instance_name: eng103a-vivek-ansible-app
+    ec2_sg_name: eng103a_vivek_vpc
+    ec2_pem_name: eng103a
   tasks:
-    - name: Provisioning EC2 instances
-      block:
-      - name: Upload public key to AWS
-        ec2_key:
-          name: "{{ key_name }}"
-          key_material: "{{ lookup('file', '/home/vagrant/.ssh/id_rsa.pub') }}"
-          region: "{{ region }}"
-          aws_access_key: "{{aws_access_key}}"
-          aws_secret_key: "{{aws_secret_key}}"
-      - name: Create security group
-        ec2_group:
-          name: "{{ sec_group }}"
-          description: "Sec group for app {{ id }}"
-          region: "{{ region }}"
-          aws_access_key: "{{aws_access_key}}"
-          aws_secret_key: "{{aws_secret_key}}"
-          rules:
-            - proto: tcp
-              ports:
-                - 22
-              cidr_ip: 0.0.0.0/0
-              rule_desc: allow all on ssh port
-            - proto: tcp
-              ports:
-                - 80
-              cidr_ip: 0.0.0.0/0
-              rule_desc: allow all on http port
-        register: result_sec_group
-      - name: Provision instance(s)
-        ec2:
-          aws_access_key: "{{aws_access_key}}"
-          aws_secret_key: "{{aws_secret_key}}"
-          key_name: "{{ key_name }}"
-          id: "{{ id }}"
-          group_id: "{{ result_sec_group.group_id }}"
-          image: "{{ image }}"
-          instance_type: t2.micro
-          region: "{{ region }}"
-          wait: true
-          count: 1
-          instance_tags:
-            name: eng103a_vivek_ansible_CController
-      tags: ['never', 'create_ec2']
+  - ec2_key:
+      name: "{{ec2_pem_name}}"
+      key_material: "{{ lookup('file', '/home/ubuntu/.ssh/vivek_app.pub') }}"
+      region: "eu-west-1"
+      aws_access_key: "{{aws_access_key}}"
+      aws_secret_key: "{{aws_secret_key}}"
+  - ec2:
+      aws_access_key: "{{aws_access_key}}"
+      aws_secret_key: "{{aws_secret_key}}"
+      key_name: "{{ec2_pem_name}}"
+      instance_type: t2.micro
+      image: ami-07d8796a2b0f8d29c
+      wait: yes
+      group: "{{ec2_sg_name}}"
+      region: "eu-west-1"
+      count: 1
+      vpc_subnet_id: subnet-xxxxxxxxxx
+      assign_public_ip: yes
+      instance_tags:
+        Name: "{{ec2_instance_name}}"
+
 ```
 - Once created, include this into the `hosts` file
-![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/ansible%20cloud%20controller%20hosts%20.png)
-
-- Navigate to .ssh folder and ssh into the new instance using the command from the aws amazon
-- Once this is done, set up ansible like above to make this as our new controller.
-- once all dependencies are set up, create `group_vars` and `all` and then create a `vault` yml file for our aws credentials
-- You can now create a new key in the .ssh folder if you prefer for this new instance and put that into your playbook script for creating a new instance for the app
-- once this is done, use the playbook script - launch_app.yml below to set up a new instance for our application in aws
+![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/Hosts%20file%20cloud%20controller.png)
+- now use `sudo ansible app -m ping --ask-vault-pass` to check the connection.
+- now copy the app folder from localhost to the controller using ` scp -i "~/.ssh/xxxx.pem" -r app ubuntu@34.244.126.239:~` and then to the application instance using the below playbook script and check if it is done correctly by sshing into the app instance
 ```
 ---
-- hosts: localhost
-  connection: local
-  gather_facts: yes
-  vars_files:
-  - /etc/ansible/group_vars/all/pass.yml
-  vars:
-    key_name: app_key
-    region: eu-west-1
-    image: ami-07d8796a2b0f8d29c
-    id: "vivek-ansibleapp3"
-    sec_group: "{{ id }}-sec"
-  tasks:
-    - name: Provisioning EC2 instances
-      block:
-      - name: Upload public key to AWS
-        ec2_key:
-          name: "{{ key_name }}"
-          key_material: "{{ lookup('file', '/home/vagrant/.ssh/id_rsa.pub') }}"
-          region: "{{ region }}"
-          aws_access_key: "{{aws_access_key}}"
-          aws_secret_key: "{{aws_secret_key}}"
-      - name: Create security group
-        ec2_group:
-          name: "{{ sec_group }}"
-          description: "Sec group for app {{ id }}"
-          region: "{{ region }}"
-          aws_access_key: "{{aws_access_key}}"
-          aws_secret_key: "{{aws_secret_key}}"
-          rules:
-            - proto: tcp
-              ports:
-                - 22
-              cidr_ip: 0.0.0.0/0
-              rule_desc: allow all on ssh port
-            - proto: tcp
-              ports:
-                - 80
-              cidr_ip: 0.0.0.0/0
-              rule_desc: allow all on http port
-            - proto:
-                - 3000
-              cidr_ip: 0.0.0.0/0 
-        register: result_sec_group
-      - name: Provision instance(s)
-        ec2:
-          aws_access_key: "{{aws_access_key}}"
-          aws_secret_key: "{{aws_secret_key}}"
-          key_name: "{{ key_name }}"
-          id: "{{ id }}"
-          group_id: "{{ result_sec_group.group_id }}"
-          image: "{{ image }}"
-          instance_type: t2.micro
-          region: "{{ region }}"
-          wait: true
-          count: 1
-          instance_tags:
-            name: eng103a_vivek_ansible_cloud_app1
-      tags: ['never', 'create_ec2']
-```
-- Now put the information in the hosts file for this new instance like below
-![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/hosts%20file%20for%20cloud%20app.png)
+# web vm
+- hosts: web
 
-- now use `sudo ansible app -m ping --ask-vault-pass` to check the connection.
-- now copy the app folder from the controller to the application instance and check if it is done correctly by sshing into the app instance
+# gather logs
+  gather_facts: yes
+
+# give admin access
+  become: true
+
+# install dependencies
+  tasks:
+  - name: Copy app folder from cloud controller to app node
+    synchronize:
+      src: /home/ubuntu/app/
+      dest: /home/ubuntu/app
+```
 - Once this is done use the playbook scripts to install dependencies like above for npm, nginx, nodejs
 
 ```
@@ -573,7 +521,7 @@ and to save this file use esc and then type :wq!
   tasks:
   - name: reverse proxy
     synchronize:
-      src: /home/vagrant/provision/default
+      src: /home/ubuntu/default
       dest: /etc/nginx/sites-available/default
 
   - name: restart nginx
@@ -582,3 +530,85 @@ and to save this file use esc and then type :wq!
   - name: enable nginx
     service: name=nginx enabled=yes
 ```
+#### Creating instance for db 
+- Now the below yaml file to create a new instance from the controller
+```
+---
+- hosts: localhost
+  connection: local
+  gather_facts: yes
+  vars_files:
+  - /etc/ansible/group_vars/all/pass.yml
+  vars:
+    ec2_instance_name: eng103a-vivek-ansible-db
+    ec2_sg_name: eng103a_vivek_vpc_db
+    ec2_pem_name: eng103a
+  tasks:
+  - ec2_key:
+      name: "{{ec2_pem_name}}"
+      key_material: "{{ lookup('file', '/home/ubuntu/.ssh/vivek_app.pub') }}"
+      region: "eu-west-1"
+      aws_access_key: "{{aws_access_key}}"
+      aws_secret_key: "{{aws_secret_key}}"
+  - ec2:
+      aws_access_key: "{{aws_access_key}}"
+      aws_secret_key: "{{aws_secret_key}}"
+      key_name: "{{ec2_pem_name}}"
+      instance_type: t2.micro
+      image: ami-07d8796a2b0f8d29c
+      wait: yes
+      group: "{{ec2_sg_name}}"
+      region: "eu-west-1"
+      count: 1
+      vpc_subnet_id: subnet-xxxxxxxx
+      assign_public_ip: yes
+      instance_tags:
+        Name: "{{ec2_instance_name}}"
+```
+- Once created, verify it by going into aws to see the new instance
+- Now include the new instance in our hosts file like below. Make sure you use private ipv4 while defining it within the hosts. This is to ensure security as its our database
+![Image LInk](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/hosts%20file%20cloud%20for%20db.png)
+- Now check the connection using `sudo ansible db -m ping --ask-vault-pass`. If you get a pong response, then we have done everything correctly.
+- Now install the dependencies for this db instance: mongodb, change the mongod.conf file to allow access for the app. Make sure you restart mongodb to pick up the new chamges made to the mongod.conf file
+- yaml file for installing mongodb and changing the mongood.conf file
+```
+---
+- hosts: db
+  gather_facts: yes
+  become: true
+  tasks:
+  - name: installing mongo
+    apt:
+      name: mongodb
+      state: present
+  - name: allow 0.0.0.0
+    ansible.builtin.lineinfile:
+      path: /etc/mongodb.conf
+      regexp: '^bind_ip = '
+      line: bind_ip = 0.0.0.0
+  - name: restart mongodb
+    service: name=mongodb state=restarted
+  - name: mongod enable
+    service: name=mongodb enabled=yes
+```
+- Now that we have allowed access from the db, we need to create an environment variable in hthe app. Use the below yaml file for creating this.
+```
+---
+- hosts: app
+
+  gather_facts: yes
+
+  become: true
+  tasks:
+  - name: Insert line at end of file
+    lineinfile:
+      path: /home/ubuntu/.bashrc
+      line: "export DB_HOST='mongodb://10.0.8.163:27017/posts'"
+  - name: sourcing .bashrc
+    shell: source /home/ubuntu/.bashrc
+    args:
+      executable: /bin/bash
+```
+- Once we finish executing this playbook, ssh into the app instance using xxxxx.pem file or the sssh key we generated - `ssh -i "eng103a-xxx.pem" ubuntu@xx.xx.xxx.xxx`
+- check if the new variable was created. If yes, cd into app, do `node seeds/seed.js` and finally `npm start` to start the app.
+- got to your browser and use the app instances public ip address to see the app running and `ip address/posts` to see the posts page
