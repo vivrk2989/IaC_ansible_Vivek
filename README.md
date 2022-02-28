@@ -612,3 +612,145 @@ and to save this file use esc and then type :wq!
 - Once we finish executing this playbook, ssh into the app instance using xxxxx.pem file or the sssh key we generated - `ssh -i "eng103a-xxx.pem" ubuntu@xx.xx.xxx.xxx`
 - check if the new variable was created. If yes, cd into app, do `node seeds/seed.js` and finally `npm start` to start the app.
 - got to your browser and use the app instances public ip address to see the app running and `ip address/posts` to see the posts page
+
+### Setting up app and db using ansible and jenkins
+ - Set up master node for jenkins on AWS. Either use saved ami of the master node or create a new master node instance as below
+   - create a new instance for the master node in aws inside your vpc
+   - enable subnet and choose the following security group: 
+![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/security%20group%20for%20jenkins%20masternode.png)
+- Once the instance is up, ssh into it and run the following commands to make it a master node
+  - `sudo apt-get update -y` 
+  - `sudo apt-get upgrade -y`
+  - `sudo apt install software-properties-common -y`
+  - `sudo add-apt-repository ppa:deadsnakes/ppa`
+  - `sudo apt install openjdk-8-jre -y` 
+  - `wget -q -O - https://pkg.jenkins.io/debian-stable/jenkins.io.key | sudo apt-key add -`
+  - `sudo sh -c 'echo deb http://pkg.jenkins.io/debian-stable binary/ > /etc/apt/sources.list.d/jenkins.list'`
+  - `sudo apt-get install update -y`
+  - `sudo apt-get install jenkins -y`
+  - `sudo systemctl start jenkins`
+- Now go back to your instance and get the public ip and paste it in the browser with the port 8080.
+- Now copy the command in red from the browser - `/var/lib/jenkins/secrets/initialAdminPassword` and paste it in the terminal
+- This will give us the password to unlock jenkins
+- Now select the plugins you require.
+- For our case, we need the following plugins: SSH Agent, Nodejs, Git parameter, GitHub and SSH
+- Once all selected plugins are installed, you will be asked to create user name, password, provide name and email.
+- Upon completion, you can finally access the jenkins server.
+- Since we are using ansible to create the two instances for app and db using playbooks, we need to install the correct plugins for ansible in jenkins
+- Go to `Manage Jenkins` and go to `Available` and search for `EC2`, `Ansible` and `YAML`
+- Once the plugins are installed, navigate to `Global Tool Configuration` and go to the ansible section and do as below:
+![Image LInk](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/Global%20Tool%20configuration%20ansible.png)
+
+#### Installing ansible on the master node instance
+- On the gitbash terminal, type `sudo apt install python3.9 -y`
+- `sudo su` to use as root
+- type `update-alternatives --install /usr/bin/python python /usr/bin/python3 1`
+- `python --version` to check the version. It should show 3.6.9
+- Now exit out of root using `exit` command
+- Run the following commands:
+  - `sudo apt-get install python3-pip -y`
+  - `sudo pip3 install awscli boto3 boto3`
+- Now use `sudo apt-add-repository ppa:ansible/ansible`
+- Then type `sudo apt-get install ansible -y`
+- navigate to ansible folder using `cd /etc/ansible/`
+- Now create `group_vars` and `all` directories and then our `pass.yml` file with the aws credentials using `sudo ansible-vault create pass.yml`
+- Use `sudo chown jenkins:jenkins pass.yml` to give jenkins permission to access pass.yml file
+- then use `ansible-galaxy collection install amazon.aws`
+- use `scp -i "~/.ssh/keyname.pem" -r app/ ubuntu@ipaddress:~` from the location of the app folder to copy app folder into the ubuntu vm or `git clone` to get the required app folder
+- now get inside jenkins using `sudo su jenkins` and go to the home directory using `cd ~`
+- navigate to .ssh folder using cd ~/.ssh. If .ssh doesnt exit, create it using `mkdir .ssh` 
+- and then cd into it
+- we now need to generate keys that our playbooks will use to create the `app` and `db` instances. Use `ssh-keygen -t rsa -b 4096` to create a key and name it accordingly
+- now `exit` or `ctrl+d` to exit out.
+#### Lets create our playbooks for the app and db instances!
+- `cd /etc/ansible/` and use `sudo nano name-of-file.yml`
+- the playbook for creating the app looks like below
+![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/create_app_yml.png)
+- we need to add `ansible_python_interpreter: /usr/bin/python3` so that python3 can act as an interpreter for ansible.
+- We also need the tags as shown on the picture above
+- Now that we have made the playbook, we will ask jenkins to run our playbook for creating the app instance. 
+- Go to jenkins and create a job called `vivek_create_app` and choose `Invoke Ansible Playbook` and make changes as shown in the picture below
+![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/create_app_jenkins_jobs.png)
+- And then provide the vault details. click `add` and select `secret text` from the `kind` drop down menu and provide the vault password you set while making the vault in the terminal.
+![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/Vault%20credentials%20jenkins%20job.png)
+- Now click  on `advanced` as shown on the far right corner and enter the following:
+![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/advanced%20build%20action%20ansible.png)
+- now click `apply` and `save` and test it out using `Build Now`
+- Create another `Build Action` and Do the same to the db instance.
+- Now we have created two instances with the help jenkins and playbooks
+- We now need to specify these servers in our hosts inventory file like below
+```
+[app]
+34.xxx.xxx.xxx ssh_connection=ssh ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/<private_key>
+
+[db]
+18.xxx.xxx.xxx ssh_connection=ssh ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/<private_key>
+```
+- Test the connection with `ansible nodename -m ping --ask-vault-pass`
+- No we create two more playbooks to install all the dependencies for the app and db instances so that we can see our app running with the posts.
+- Playbook for installing app dependencies
+```
+---
+- hosts: app
+  gather_facts: yes
+  become: yes
+  tasks:
+  -  name: syncing app folder
+     synchronize:
+       src: /home/ubuntu/app
+       dest: ~/
+  -  name: upgrade
+     apt: upgrade=yes
+  -  name: load a specific version of nodejs
+     shell: curl -sl https://deb.nodesource.com/setup_6.x | sudo -E bash -
+  -  name: install the required packages
+     apt:
+       pkg:
+         - nginx
+         - nodejs
+         - npm
+       update_cache: yes
+  -  name: nginx configuration for reverse proxy
+     synchronize:
+       src: /home/ubuntu/app/default
+       dest: /etc/nginx/sites-available/default
+  -  name: nginx restart
+     service:
+       name: nginx
+       state: restarted
+  -  name: setting db variable
+     lineinfile:
+       dest: /home/ubuntu/.bashrc
+       line: 'export DB_HOST=mongodb://<db_ip>:27017/posts'
+```
+- playbook for installing db dependencies
+```
+---
+- hosts: db
+  gather_facts: yes
+  become: true
+# install mongodb in db instance and ensure it's running
+  tasks:
+  - name: installing mongo pre-requisites
+    apt: pkg=mongodb state=present update_cache=yes
+  - name: allow 0.0.0.0
+    ansible.builtin.lineinfile:
+      path: /etc/mongodb.conf
+      regexp: '^bind_ip = '
+      insertafter: '^#bind_ip = '
+      line: bind_ip = 0.0.0.0
+  - name: restart and enable mongod
+    service: name=mongodb state=restarted enabled=yes
+```
+
+- Now create job in jenkins for installing DB dependency
+![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/DB_dependencies_jenkins_ansible.png)
+- Do the same for app dependencies
+![Image Link](https://github.com/vivrk2989/IaC_ansible_Vivek/blob/main/Images/app_dependencies_jenkins_ansible.png) 
+
+- Once the jobs are made, click `Build Now` and test the jobs
+- once the build is ready, we can go to our app instance and use its ip address to see the app running with `/posts`
+
+
+
+
